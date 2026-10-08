@@ -61,33 +61,31 @@ public:
         auto lidar_names = nh->declare_parameter<std::vector<std::string>>("lidars", std::vector<std::string>());
         assert(nh->get_parameter({"lidars"}, lidar_names));
         if (lidar_names.empty()) {
-            LidarConfig lidar(nh, "");
-            addLidar(lidar.type, lidar);
+            addLidar(nh, "");
         } else {
             for (const auto& lidar_name : lidar_names) {
-                addLidar(lidar_name, LidarConfig(nh, lidar_name + "."));
+                addLidar(nh, lidar_name);
             }
         }    
         for (const auto& [lidar_name, lidar] : lidars) {
-            const std::string name = lidar_name;
             if (!lidar.type.compare("Ouster")) {
                 subs_lidar.push_back(nh->create_subscription<sensor_msgs::msg::PointCloud2>(lidar.topic, 200000,
-                        [this, name](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { ousterLidarCallback<ouster_ros::Point>(msg, name); }));
+                        [this, name = lidar_name](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { ousterLidarCallback<ouster_ros::Point>(msg, name); }));
             } else if (!lidar.type.compare("Mid70Avia")) {
                 subs_lidar.push_back(nh->create_subscription<livox_ros_driver::msg::CustomMsg>(lidar.topic, 200000,
-                        [this, name](const livox_ros_driver::msg::CustomMsg::SharedPtr msg) { livoxLidarCallback(msg, name); }));
+                        [this, name = lidar_name](const livox_ros_driver::msg::CustomMsg::SharedPtr msg) { livoxLidarCallback(msg, name); }));
             } else if (!lidar.type.compare("HAP360")) {
                 subs_lidar.push_back(nh->create_subscription<livox_ros_driver2::msg::CustomMsg>(lidar.topic, 200000,
-                        [this, name](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg) { livoxLidar2Callback(msg, name); }));
+                        [this, name = lidar_name](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg) { livoxLidar2Callback(msg, name); }));
             } else if (!lidar.type.compare("AviaResple")) {
                 subs_lidar.push_back(nh->create_subscription<livox_interfaces::msg::CustomMsg>(lidar.topic, 200000,
-                        [this, name](const livox_interfaces::msg::CustomMsg::SharedPtr msg) { livoxAVIACallback(msg, name); }));
+                        [this, name = lidar_name](const livox_interfaces::msg::CustomMsg::SharedPtr msg) { livoxAVIACallback(msg, name); }));
             } else if (!lidar.type.compare("Hesai")) {
                 subs_lidar.push_back(nh->create_subscription<sensor_msgs::msg::PointCloud2>(lidar.topic, 200000,
-                        [this, name](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { hesaiLidarCallback(msg, name); }));
+                        [this, name = lidar_name](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { hesaiLidarCallback(msg, name); }));
             } else if (!lidar.type.compare("Mid360Boxi")) {
                 subs_lidar.push_back(nh->create_subscription<sensor_msgs::msg::PointCloud2>(lidar.topic, 200000,
-                        [this, name](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { livoxMid360BoxiCallback(msg, name); }));
+                        [this, name = lidar_name](const sensor_msgs::msg::PointCloud2::SharedPtr msg) { livoxMid360BoxiCallback(msg, name); }));
             } else {
                 RCLCPP_FATAL(nh->get_logger(), "Unknown lidar_type \"%s\" for lidar \"%s\"", lidar.type.c_str(), lidar_name.c_str());
                 exit(1);
@@ -335,13 +333,16 @@ private:
         }
     }     
 
-    void addLidar(const std::string& name, const LidarConfig& lidar)
+    // An empty name reads the un-prefixed single-lidar parameters and uses lidar_type as the name.
+    void addLidar(rclcpp::Node::SharedPtr& nh, const std::string& name)
     {
-        if (!lidars.emplace(name, lidar).second) {
-            std::cerr << "Duplicate lidar name \"" << name << "\" in parameter \"lidars\"" << std::endl;
+        LidarConfig lidar(nh, name.empty() ? "" : name + ".");
+        const std::string key = name.empty() ? lidar.type : name;
+        if (!lidars.try_emplace(key, lidar).second) {
+            RCLCPP_FATAL(nh->get_logger(), "Duplicate lidar name \"%s\" in parameter \"lidars\"", key.c_str());
             exit(1);
         }
-        lidars_data.emplace(std::piecewise_construct, std::make_tuple(name), std::make_tuple());
+        lidars_data.try_emplace(key);
     }
 
     void getImuCallback(const sensor_msgs::msg::Imu::SharedPtr imu_msg)
